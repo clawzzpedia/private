@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WA Clone</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * { scrollbar-width: thin; }
+        *::-webkit-scrollbar { width: 6px; }
+        *::-webkit-scrollbar-track { background: #202c33; }
+        *::-webkit-scrollbar-thumb { background: #404d59; border-radius: 3px; }
+        .message { max-width: 70%; margin-bottom: 8px; }
+        .message.sent { margin-left: auto; }
+        .message.received { margin-right: auto; }
+        @media (max-width: 768px) {
+            .message { max-width: 85%; }
+        }
+    </style>
+</head>
+<body class="bg-[#111b21] text-white h-screen flex flex-col md:flex-row overflow-hidden font-['Segoe UI',sans-serif]">
+    
+    <!-- Login Modal (awal) -->
+    <div id="loginModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-[#202c33] p-8 rounded-2xl w-96 max-w-sm mx-4">
+            <h2 class="text-2xl font-bold mb-6 text-center">Login / Register</h2>
+            <form id="authForm">
+                <input type="email" id="email" placeholder="Email" class="w-full p-3 mb-4 bg-[#2a3942] rounded-lg border border-[#005e54]">
+                <input type="password" id="password" placeholder="Password" class="w-full p-3 mb-6 bg-[#2a3942] rounded-lg border border-[#005e54]">
+                <button type="submit" class="w-full bg-[#00a884] p-3 rounded-lg font-semibold mb-2">Login</button>
+                <button type="button" id="registerBtn" class="w-full bg-[#202c33] border border-[#005e54] p-3 rounded-lg">Register</button>
+            </form>
+            <p class="text-sm text-gray-400 mt-4 text-center">
+                Test: john@example.com / password
+            </p>
+        </div>
+    </div>
+
+    <!-- Main App (hidden awal) -->
+    <div id="mainApp" class="hidden h-screen flex flex-col md:flex-row overflow-hidden w-full">
+        <!-- Sidebar Kontak (Desktop: kiri, Mobile: full overlay) -->
+        <div id="sidebar" class="w-full md:w-80 bg-[#202c33] border-r border-[#005e54] flex flex-col relative md:translate-x-0 transform transition-transform duration-300 z-20">
+            <!-- Mobile Menu Button -->
+            <button id="menuBtn" class="md:hidden p-4 sticky top-0 bg-[#202c33] border-b border-[#005e54] z-10">
+                <svg class="w-6 h-6 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                </svg>
+            </button>
+            
+            <!-- Profile Header -->
+            <div id="profileHeader" class="p-4 bg-[#202c33] border-b border-[#005e54]">
+                <div class="flex items-center space-x-3">
+                    <img id="profileImg" src="https://via.placeholder.com/40" class="w-10 h-10 rounded-full" alt="Profile">
+                    <div>
+                        <p id="profileName" class="font-semibold">Loading...</p>
+                        <small class="text-green-400 text-sm">Online</small>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Search -->
+            <input type="text" id="searchInput" placeholder="Cari chat atau kontak..." class="p-4 bg-[#2a3942] mx-4 mt-2 rounded-lg border border-transparent focus:border-[#00a884]">
+            
+            <!-- Chat List -->
+            <div id="chatList" class="flex-1 overflow-y-auto py-2">
+                <!-- Kontak akan dimuat di sini -->
+            </div>
+        </div>
+
+        <!-- Chat Area (Desktop: kanan, Mobile: full) -->
+        <div class="flex-1 flex flex-col min-w-0">
+            <!-- Chat Header -->
+            <div id="chatHeader" class="p-4 bg-[#202c33] border-b border-[#005e54] flex items-center space-x-3 hidden">
+                <button id="backBtn" class="md:hidden">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                    </svg>
+                </button>
+                <img id="chatProfileImg" src="" class="w-10 h-10 rounded-full" alt="Chat Profile">
+                <div>
+                    <p id="chatName" class="font-semibold">Pilih kontak untuk memulai chat</p>
+                    <small id="chatStatus" class="text-gray-400 text-sm">Online</small>
+                </div>
+            </div>
+            
+            <!-- Messages Area -->
+            <div id="messages" class="flex-1 overflow-y-auto bg-[#0b141a] p-4 hidden scroll-smooth">
+                <div class="text-center text-gray-500 py-8">Pilih kontak untuk melihat pesan</div>
+            </div>
+            
+            <!-- Input Pesan (SEMPURNA DI BAWAH) -->
+            <div id="messageInputArea" class="p-4 bg-[#202c33] border-t border-[#005e54] hidden">
+                <div class="flex items-end space-x-2 max-w-full">
+                    <!-- Attachment Icon -->
+                    <button class="p-2 hover:bg-[#2a3942] rounded-full">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                        </svg>
+                    </button>
+                    
+                    <!-- Text Input -->
+                    <div class="flex-1 relative">
+                        <input id="messageInput" type="text" placeholder="Ketik pesan..." 
+                               class="w-full p-3 pr-12 bg-[#2a3942] rounded-3xl resize-none focus:outline-none focus:bg-[#3a4a55] max-h-20">
+                        <button id="sendBtn" class="absolute right-2 bottom-2 p-1 rounded-full hover:bg-[#00a884]">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10.895 2.553a1 1 0 000 1.447l-4.45 4.45A1 1 0 016 8v4a1 1 0 001 1h4a1 1 0 00.707-.293l4.45-4.45a1 1 0 011.447 0l1.414 1.414a1 1 0 010 1.415l-7.07 7.07a1 1 0 01-1.414 0l-3.536-3.536a1 1 0 010-1.414L9.192 7.071a1 1 0 011.414 0l3.889 3.889 2.121-2.121 1.414 1.414-2.121 2.121 4.596 4.596a1 1 0 011.414 0l2.829 2.829a1 1 0 010 1.414l-1.768 1.768a1 1 0 01-1.414 0L18.121 20a1 1 0 01-.707-.293l-2.829-2.829a1 1 0 010-1.414l4.596-4.596-2.121-2.121 1.414-1.414 2.121 2.121 1.768-1.768a1 1 0 010-1.414l-2.829-2.829a1 1 0 00-1.447 0l-4.45 4.45a1 1 0 01-.707.293H7a1 1 0 01-1-1V8a1 1 0 01.293-.707l4.45-4.45a1 1 0 011.447 0z" clip-rule="evenodd"/>
+                            </svg>
+                        </button>
+                    </div>
+                    
+                    <!-- Voice Icon -->
+                    <button class="p-2 hover:bg-[#2a3942] rounded-full">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let token = localStorage.getItem('token');
+        let currentUser = null;
+        let currentChatUserId = null;
+        let socket = null;
+
+        const loginModal = document.getElementById('loginModal');
+        const mainApp = document.getElementById('mainApp');
+        const sidebar = document.getElementById('sidebar');
+        const chatList = document.getElementById('chatList');
+        const chatHeader = document.getElementById('chatHeader');
+        const messages = document.getElementById('messages');
+        const messageInputArea = document.getElementById('messageInputArea');
+        const messageInput = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+
+        // Auto login jika ada token
+        if (token) {
+            verifyToken();
+        }
+
+        // Login/Register
+        document.getElementById('authForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
+                
+                if (res.ok) {
+                    localStorage.setItem('token', data.token);
+                    currentUser = data.user;
+                    initApp();
+                } else {
+                    alert(data.error);
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        };
+
+        document.getElementById('registerBtn').onclick = async () => {
+            const email = document.getElementById('email').value;
+            const username = prompt('Username:');
+            const password = document.getElementById('password').value;
+            
+            if (username && email && password) {
+                try {
+                    const res = await fetch('/api/register', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username, email, password })
+                    });
+                    const data = await res.json();
+                    alert('Registered! Now login.');
+                } catch (err) {
+                    alert('Error: ' + err.message);
+                }
+            }
+        };
+
+        async function verifyToken() {
+            try {
+                const res = await fetch('/api/profile', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (res.ok) {
+                    currentUser = await res.json();
+                    initApp();
+                } else {
+                    localStorage.removeItem('token');
+                }
+            } catch (err) {
+                localStorage.removeItem('token');
+            }
+        }
+
+        function initApp() {
+            loginModal.classList.add('hidden');
+            mainApp.classList.remove('hidden');
+            document.getElementById('profileName').textContent = currentUser.username;
+            document.getElementById('profileImg').src = 'https://via.placeholder.com/40';
+            
+            loadChats();
+            connectSocket();
+            
+            // Mobile menu
+            document.getElementById('menuBtn').onclick = () => {
+                sidebar.classList.toggle('-translate-x-full');
+            };
+            
+            document.getElementById('backBtn').onclick = () => {
+                sidebar.classList.remove('-translate-x-full');
+                closeChat();
+            };
+        }
+
+        async function loadChats() {
+            const res = await fetch('/api/chats', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const chats = await res.json();
+            
+            chatList.innerHTML = chats.map(chat => `
+                <div class="chat-item p-4 hover:bg-[#2a3942] cursor-pointer flex items-center space-x-3 border-b border-[#2a3942] last:border-b-0" data-userid="${chat.id}">
+                    <img src="${chat.avatar || 'https://via.placeholder.com/48'}" class="w-12 h-12 rounded-full flex-shrink-0" alt="${chat.username}">
+                    <div class="flex-1 min-w-0">
+                        <p class="font-semibold truncate text-sm">${chat.username}</p>
+                        <p class="text-gray-400 text-xs truncate max-w-[200px]">${chat.lastMessage || 'Mulai chat baru...'}</p>
+                    </div>
+                    <div class="text-right text-xs text-gray-500 min-w-[50px]">
+                        ${chat.lastTime ? new Date(chat.lastTime).toLocaleTimeString('id-ID', {hour: '2-digit', minute: '2-digit'}) : ''}
+                    </div>
+                </div>
+            `).join('');
+            
+            // Event listener untuk chat items
+            document.querySelectorAll('.chat-item').forEach(item => {
+                item.onclick = () => openChat(item.dataset.userid, item);
+            });
+        }
+
+        function openChat(userId, item) {
+            currentChatUserId = userId;
+            document.getElementById('chatProfileImg').src = item.querySelector('img').src;
+            document.getElementById('chatName').textContent = item.querySelector('p').textContent;
+            chatHeader.classList.remove('hidden');
+            messages.classList.remove('hidden');
+            messageInputArea.classList.remove('hidden');
+            
+            // Mobile: hide sidebar
+            if (window.innerWidth < 768) {
+                sidebar.classList.add('-translate-x-full');
+            }
+            
+            loadMessages(userId);
+        }
+
+        function closeChat() {
+            currentChatUserId = null;
+            chatHeader.classList.add('hidden');
+            messages.classList.add('hidden');
+            messageInputArea.classList.add('hidden');
+            messages.innerHTML = '<div class="text-center text-gray-500 py-8">Pilih kontak untuk melihat pesan</div>';
+        }
+
+        async function loadMessages(userId) {
+            const res = await fetch(`/api/messages/${userId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const msgs = await res.json();
+            
+            messages.innerHTML = msgs.map(msg => {
+                const isSent = msg.from_user == currentUser.id;
+                return `
+                    <div class="message ${isSent ? 'sent' : 'received'} flex ${isSent ? 'justify-end' : 'justify-start'} mb-2">
+                        <div class="p-3 rounded-2xl max-w-xs md:max-w-md bg-${isSent ? '00a884' : '202c33'} shadow">
+                            <p class="text-sm break-words">${msg.message}</p>
+                            <small class="text-xs opacity-75 mt-1 block">${new Date(msg.timestamp).toLocaleTimeString('id-ID', {hour: '2-digit', minute: '2-digit'})}</small>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        function connectSocket() {
+            socket = io('/', { auth: { token } });
+            
+            socket.on('message', (data) => {
+                if ((data.from == currentUser.id && data.to == currentChatUserId) || 
+                    (data.to == currentUser.id && data.from == currentChatUserId)) {
+                    loadMessages(currentChatUserId);
+                    loadChats(); // Update last message di list
+                }
+            });
+        }
+
+        // Send message
+        function sendMessage() {
+            if (!currentChatUserId || !messageInput.value.trim()) return;
+            
+            socket.emit('sendMessage', {
+                to: currentChatUserId,
+                message: messageInput.value
+            });
+            messageInput.value = '';
+        }
+
+        sendBtn.onclick = sendMessage;
+        messageInput.onkeypress = (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        };
+
+        // Search chats
+        document.getElementById('searchInput').oninput = (e) => {
+            const term = e.target.value.toLowerCase();
+            document.querySelectorAll('.chat-item').forEach(item => {
+                const name = item.querySelector('p').textContent.toLowerCase();
+                item.style.display = name.includes(term) ? 'flex' : 'none';
+            });
+        };
+
+        // Responsive resize
+        window.onresize = () => {
+            if (window.innerWidth >= 768 && sidebar.classList.contains('-translate-x-full')) {
+                sidebar.classList.remove('-translate-x-full');
+            }
+        };
+    </script>
+</body>
+</html>
