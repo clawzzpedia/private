@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WA Clone</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * { scrollbar-width: thin; }
+        *::-webkit-scrollbar { width: 6px; }
+        .message { max-width: 70%; }
+        @media (max-width: 768px) { .message { max-width: 85%; } }
+    </style>
+</head>
+<body class="bg-[#111b21] text-white h-screen flex flex-col md:flex-row overflow-hidden">
+    <!-- Login Modal -->
+    <div id="loginModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-[#202c33] p-8 rounded-2xl w-96">
+            <h2 class="text-2xl font-bold mb-6 text-center">Login</h2>
+            <input type="email" id="email" placeholder="Email" class="w-full p-3 mb-4 bg-[#2a3942] rounded-lg">
+            <input type="password" id="password" placeholder="Password" class="w-full p-3 mb-6 bg-[#2a3942] rounded-lg">
+            <button onclick="login()" class="w-full bg-[#00a884] p-3 rounded-lg mb-2">Login</button>
+            <p class="text-sm text-gray-400 text-center">Belum punya akun? <a href="register.html" class="text-[#00a884]">Daftar</a></p>
+            <p class="text-xs text-green-400 mt-4 text-center">Test: john@example.com / password</p>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="mainApp" class="hidden h-screen flex flex-col md:flex-row">
+        <!-- Sidebar -->
+        <div id="sidebar" class="w-full md:w-80 bg-[#202c33] flex flex-col">
+            <div id="profileHeader" class="p-4 bg-[#202c33] border-b border-[#005e54]">
+                <div class="flex items-center space-x-3">
+                    <img id="profileImg" src="https://via.placeholder.com/40" class="w-10 h-10 rounded-full">
+                    <div><p id="profileName">Loading...</p><small class="text-green-400">Online</small></div>
+                </div>
+            </div>
+            <input id="searchInput" placeholder="Cari chat..." class="p-4 bg-[#2a3942] m-4 rounded-lg">
+            <div id="chatList" class="flex-1 overflow-y-auto"></div>
+        </div>
+
+        <!-- Chat Area -->
+        <div class="flex-1 flex flex-col">
+            <div id="chatHeader" class="p-4 bg-[#202c33] border-b border-[#005e54] hidden flex items-center space-x-3">
+                <img id="chatProfileImg" src="" class="w-10 h-10 rounded-full">
+                <div><p id="chatName">Pilih kontak</p><small id="chatStatus" class="text-gray-400">Online</small></div>
+            </div>
+            <div id="messages" class="flex-1 p-4 overflow-y-auto bg-[#0b141a] hidden">Pilih kontak untuk chat</div>
+            <div id="messageInputArea" class="p-4 bg-[#202c33] border-t border-[#005e54] hidden">
+                <div class="flex items-center space-x-2">
+                    <input id="messageInput" placeholder="Ketik pesan..." class="flex-1 p-3 bg-[#2a3942] rounded-full">
+                    <button id="sendBtn">Kirim</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let token = localStorage.getItem('token');
+        let currentUser = null;
+        let currentChatUserId = null;
+        let socket = null;
+
+        if (token) verifyToken();
+        
+        async function login() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            
+            const res = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+            const data = await res.json();
+            
+            if (res.ok) {
+                localStorage.setItem('token', data.token);
+                currentUser = data.user;
+                initApp();
+            } else {
+                alert(data.error);
+            }
+        }
+
+        async function verifyToken() {
+            const res = await fetch('/api/profile', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                currentUser = await res.json();
+                initApp();
+            } else {
+                localStorage.removeItem('token');
+            }
+        }
+
+        function initApp() {
+            document.getElementById('loginModal').classList.add('hidden');
+            document.getElementById('mainApp').classList.remove('hidden');
+            document.getElementById('profileName').textContent = currentUser.username;
+            loadChats();
+            connectSocket();
+        }
+
+        async function loadChats() {
+            const res = await fetch('/api/chats', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const chats = await res.json();
+            
+            document.getElementById('chatList').innerHTML = chats.map(chat => `
+                <div class="chat-item p-4 hover:bg-[#2a3942] cursor-pointer flex items-center space-x-3" data-userid="${chat.id}">
+                    <img src="https://via.placeholder.com/48" class="w-12 h-12 rounded-full">
+                    <div class="flex-1"><p class="font-semibold">${chat.username}</p></div>
+                </div>
+            `).join('');
+            
+            document.querySelectorAll('.chat-item').forEach(item => {
+                item.onclick = () => openChat(item.dataset.userid, item);
+            });
+        }
+
+        function openChat(userId, item) {
+            currentChatUserId = userId;
+            document.getElementById('chatProfileImg').src = item.querySelector('img').src;
+            document.getElementById('chatName').textContent = item.querySelector('p').textContent;
+            document.getElementById('chatHeader').classList.remove('hidden');
+            document.getElementById('messages').classList.remove('hidden');
+            document.getElementById('messageInputArea').classList.remove('hidden');
+            loadMessages(userId);
+        }
+
+        async function loadMessages(userId) {
+            const res = await fetch(`/api/messages/${userId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const msgs = await res.json();
+            // Render messages...
+        }
+
+        function connectSocket() {
+            socket = io('/', { auth: { token } });
+            socket.on('message', (data) => {
+                if (currentChatUserId) loadMessages(currentChatUserId);
+            });
+        }
+
+        document.getElementById('sendBtn').onclick = () => {
+            if (currentChatUserId && socket) {
+                socket.emit('sendMessage', {
+                    to: currentChatUserId,
+                    message: document.getElementById('messageInput').value
+                });
+                document.getElementById('messageInput').value = '';
+            }
+        };
+    </script>
+</body>
+</html>
